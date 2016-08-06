@@ -1,0 +1,27 @@
+#!/usr/bin/bash
++ /etc/profile
++ /etc/bash.bashrc
++ /etc/pacman.d/mirrorlist
++ /etc/X11/xorg.conf.d/30-touchpad.conf
++ /etc/X11/xinit/xinitrc
++ /etc/hosts
++ /usr/share/applications/gvim.desktop
++ ~/.config
+- ~/.config/chromium
+- ~/.config/libreoffice
+- ~/.config/sublime-text-3/Cache
++ ~/.local
++ ~/.tmux.conf
++ ~/.fvwm
++ ~/.vim
+- ~/.vim/bundle
++ ~/.vimrc
++ ~/.gvimrc
++ ~/.bashrc
++ ~/.bash_profile
++ ~/.xinitrc
++ ~/.gitconfig
++ ~/.fehbg
++ ~/Documents
++ ~/Images
++ ~/Pictures
