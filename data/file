@@ -5,7 +5,10 @@
 + /etc/X11/xorg.conf.d/30-touchpad.conf
 + /etc/X11/xinit/xinitrc
 + /etc/hosts
-+ /usr/share/applications/gvim.desktop
++ /etc/httpd/conf/httpd.conf
++ /etc/php/php.ini
++ /etc/mysql/my.cnf
++ /etc/httpd/conf/extra/phpmyadmin.conf
 + /var/db/timeline
 + ~/.config
 - ~/.config/chromium
