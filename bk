@@ -21,7 +21,15 @@ for (@input) {
 }
 
 my @files;
-push @files, map { chomp; $_ } `find $_` for @add;
+for (@add) {
+    if (-d $_.'/.git') {
+        say "git";
+        my$prefix = $_;
+        push @files, map { chomp; $prefix.'/'.$_ } `cd $_ && git ls-files`;
+    } else {
+        push @files, map { chomp; $_ } `find $_`;
+    }
+}
 sub check {
     my($arg) = @_;
     for (@ignore) {
