@@ -34,8 +34,6 @@ for (@add) {
         push @files, map { chomp; $_ } `find $_`;
 }
 
-
-
 sub check {
     my($arg) = @_;
     for (@ignore) {
@@ -58,5 +56,5 @@ for (@files) {
         $current_dir.=$_.'/';
         mkdir $current_dir unless -d $current_dir;
     }
-    system "ln -s '/$_' '$current_dir'";
+    system "ln -s \"/$_\" \"$current_dir\"";
 }
