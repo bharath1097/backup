@@ -10,16 +10,14 @@ use std::cell::{RefCell, Ref, RefMut};
 struct Node {
     name: String,
     sym: bool,
-    is_git: bool,
     sub: Vec<RefCell<Node>>,
 }
 
 impl Node {
-    fn new(name: &str) -> RefCell<Node> {
+    fn new(name: &str, sym: bool) -> RefCell<Node> {
         RefCell::new(Node {
             name: name.to_string(),
-            sym: false,
-            is_git: false,
+            sym: sym,
             sub: vec![],
         })
     }
@@ -60,7 +58,7 @@ fn find_ignore_args (list: &Vec<String>) -> Vec<String> {
     })
 }
 
-fn extend<'a, T>(mut node: RefMut<Node>, mut iter: T)
+fn extend<'a, T>(mut node: RefMut<Node>, mut iter: T, deep: usize, base_deep: usize)
 where T: Iterator<Item = &'a String> {
     let name = iter.next();
     if let None = name {
@@ -68,16 +66,17 @@ where T: Iterator<Item = &'a String> {
     }
     let name = name.unwrap();
     if node.get_son(&name).is_none() {
-        node.add_son(Node::new(&name));
+        node.add_son(Node::new(&name, deep>=base_deep));
     }
-    extend(node.get_mut_son(&name).expect("get mut error"), iter);
+    extend(node.get_mut_son(&name).expect("get mut error"), iter, deep+1, base_deep);
 }
 
-fn make_tree(root: RefCell<Node>, list: &Vec<String>) -> RefCell<Node> {
+fn make_tree(root: RefCell<Node>, list: &Vec<String>, deep: &Vec<usize>) -> RefCell<Node> {
+    let mut deep_iter = deep.iter();
     for x in list {
         let list = split(&x, "/");
         let iter = list.iter().skip(1);
-        extend(root.borrow_mut(), iter);
+        extend(root.borrow_mut(), iter, 0, *deep_iter.next().unwrap_or(&usize::max_value()));
     }
     root
 }
@@ -89,26 +88,36 @@ fn pwd() -> String {
     format!("{}", std::env::current_dir().unwrap().display())
 }
 
-fn travel(node: Ref<Node>, root: &str, path: &str) {
+fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
     let path = &format!("{}/{}", path, node.name);
-    println!("{}", path);
+    if node.sym {
+        node.sub.clear();
+    }
     if node.sub.is_empty() {
         let real_path = path.to_string().replace(root, "");
         Command::new("ln").args(&["-s", &real_path, path]).status().expect("ln error");
     } else {
         Command::new("mkdir").arg(path).status().expect("mkdir error");
         for x in &node.sub {
-            travel(x.borrow(), root, path);
+            travel(x.borrow_mut(), root, path);
         }
     }
 }
 
-fn output(node: Ref<Node>) {
+fn output(node: RefMut<Node>) {
     let outdir = format!("{}/output", pwd());
-    println!("{}", outdir);
     Command::new("rm").args(&["-R", &outdir]).status();
-    Command::new("mkdir").arg(&outdir).status();
     travel(node, &outdir, &outdir);
+}
+
+fn flag<'a, T>(mut node: RefMut<Node>, mut iter: T)
+where T: Iterator<Item = &'a String> {
+    node.sym = false;
+    let name = iter.next();
+    match node.get_mut_son(name.unwrap()) {
+        None => (),
+        Some(x) => flag(x, iter),
+    }
 }
 
 fn main() {
@@ -120,7 +129,7 @@ fn main() {
         .filter(|s| Regex::new(r"^-").unwrap().is_match(s))
         .map(|s| readlink(&s)).collect();
 
-    let git_repo = {
+    let git_repo: Vec<String> = {
         let ignore = &find_ignore_args(&ignore);
         let mut ret: Vec<String> = vec![];
         for x in &add {
@@ -133,17 +142,35 @@ fn main() {
         }
         ret.iter().map(|x| x.replace("/.git", "")).collect()
     };
-    let mut files: Vec<String> = vec!{};
+
+    // remove git repo from add
+    let add: Vec<String> = add.into_iter()
+        .filter(|x| git_repo.iter().find(|y| y == &x).is_none())
+        .collect();
+
+    let mut files: Vec<String> = vec![];
+    let mut deep: Vec<usize> = vec![];
     for x in &add {
         let s = Command::new("find")
             .arg(x).args(&find_ignore_args(&ignore)).args(&find_ignore_args(&git_repo))
             .arg("-print")
             .output().expect("").stdout;
         let s = String::from_utf8(s).expect("");
-        files.append(&mut split(&s, r"\n"));
+        let mut new = split(&s, r"\n");
+        let tmp = x.matches("/").count() - 1;
+        let mut newdeep: Vec<_> = new.iter().map(|_| tmp).collect();
+        files.append(&mut new);
+        deep.append(&mut newdeep)
     }
-    let root = make_tree(Node::new(""), &files);
+    let root = make_tree(Node::new("", false), &files, &deep);
 
+    for x in &ignore {
+        let list = split(x, "/");
+        let iter = list.iter().skip(1);
+        flag(root.borrow_mut(), iter);
+    }
+
+//{{{ add git files
     let (git, submodule): (Vec<_>, Vec<_>) = git_repo.clone().into_iter().partition(|x| {
         git_repo.iter().fold(true, |boo, y| boo & (!x.starts_with(y) | (&x == &y)))
     });
@@ -164,6 +191,8 @@ fn main() {
             git_files.append(&mut get_git_files(x));
         }
     }
-    let root = make_tree(root, &git_files);
-    output(root.borrow());
+    let root = make_tree(root, &git_files, &vec![]);
+//}}}
+
+    output(root.borrow_mut());
 }
