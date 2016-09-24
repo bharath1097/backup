@@ -1,8 +1,12 @@
 extern crate regex;
 
+use std::env;
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
 use std::process::Command;
+use std::collections::BTreeMap;
+use std::time::SystemTime;
 use regex::Regex;
 use std::cell::{RefCell, Ref, RefMut};
 
@@ -12,6 +16,7 @@ struct Node {
     sym: bool,
     sub: Vec<RefCell<Node>>,
 }
+type Database = BTreeMap<String, SystemTime>;
 
 impl Node {
     fn new(name: &str, sym: bool) -> RefCell<Node> {
@@ -37,7 +42,7 @@ fn split (s: &str, pattern: &str) -> Vec<String> {
 }
 
 fn readlink(s: &str) -> String {
-    let home = format!("{}", std::env::home_dir().unwrap().display());
+    let home = format!("{}", env::home_dir().unwrap().display());
     s.replace("~", &home).replace("+ ", "").replace("- ", "")
 }
 
@@ -82,10 +87,10 @@ fn make_tree(root: RefCell<Node>, list: &Vec<String>, deep: &Vec<usize>) -> RefC
 }
 
 fn chdir(s: &str) -> Result<(), std::io::Error> {
-    std::env::set_current_dir(std::path::Path::new(s))
+    env::set_current_dir(std::path::Path::new(s))
 }
 fn pwd() -> String {
-    format!("{}", std::env::current_dir().unwrap().display())
+    format!("{}", env::current_dir().unwrap().display())
 }
 
 fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
@@ -120,8 +125,50 @@ where T: Iterator<Item = &'a String> {
     }
 }
 
+trait DatabaseTrait {
+    fn from_list(files: &Vec<String>) -> Self;
+    fn read(path: &str) -> Self;
+    fn write(&self, path: &str) -> Result<(), ()>;
+}
+
+impl DatabaseTrait for Database {
+    fn from_list(files: &Vec<String>) -> BTreeMap<String, SystemTime> {
+        let mut ret = BTreeMap::new();
+        for x in files {
+            let time = File::open(x).unwrap().metadata().unwrap().modified().unwrap();
+            ret.insert(x.to_string(), time);
+        }
+        ret
+    }
+    fn read(path: &str) -> BTreeMap<String, SystemTime> {
+        let mut ret = BTreeMap::new();
+        let mut file = File::open(path).unwrap();
+        let mut s = String::new();
+        file.read_to_string(&mut s).unwrap();
+        let regex = Regex::new(r"^(\d+) (\d+) (.+)$").unwrap();
+        for s in s.lines() {
+            let cap = regex.captures_iter(s).next().unwrap();
+            let (a, b, s) = (cap.at(1).unwrap(), cap.at(2).unwrap(), cap.at(3).unwrap());
+            let a = a.parse::<u64>().unwrap();
+            let b = b.parse::<u64>().unwrap();
+            let time: SystemTime = unsafe{ std::mem::transmute((a, b)) };
+            ret.insert(s.to_string(), time);
+        }
+        ret
+    }
+    fn write(&self, path: &str) -> Result<(), ()> {
+        let mut file = File::create(path).unwrap();
+        for (key, value) in self {
+            let (a, b): (u64, u64) = unsafe { std::mem::transmute_copy(value) };
+            writeln!(file, "{} {} {}", a, b, key).unwrap();
+        }
+        Ok(())
+    }
+}
+
 fn main() {
-    let data = read("./data/file");
+    let file = env::args().nth(1).unwrap_or("file".to_string());
+    let data = read(&format!("./data/{}", file));
     let add: Vec<String> = data.clone().into_iter()
         .filter(|s| Regex::new(r"^\+").unwrap().is_match(s))
         .map(|s| readlink(&s)).collect();
