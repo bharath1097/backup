@@ -43,7 +43,8 @@ fn split (s: &str, pattern: &str) -> Vec<String> {
 
 fn readlink(s: &str) -> String {
     let home = format!("{}", env::home_dir().unwrap().display());
-    s.replace("~", &home).replace("+ ", "").replace("- ", "")
+    let s = s.replace("~", &home).replace("+ ", "").replace("- ", "");
+    Regex::new(r"/$").unwrap().replace_all(&s, "")
 }
 
 fn read(path: &str) -> Vec<String> {
@@ -118,8 +119,8 @@ fn output(node: RefMut<Node>) {
 fn flag<'a, T>(mut node: RefMut<Node>, mut iter: T)
 where T: Iterator<Item = &'a String> {
     node.sym = false;
-    let name = iter.next();
-    match node.get_mut_son(name.unwrap()) {
+    let name = iter.next().unwrap();
+    match node.get_mut_son(name) {
         None => (),
         Some(x) => flag(x, iter),
     }
@@ -172,7 +173,7 @@ fn main() {
     let add: Vec<String> = data.clone().into_iter()
         .filter(|s| Regex::new(r"^\+").unwrap().is_match(s))
         .map(|s| readlink(&s)).collect();
-    let ignore: Vec<String> = data.clone().into_iter()
+    let mut ignore: Vec<String> = data.clone().into_iter()
         .filter(|s| Regex::new(r"^-").unwrap().is_match(s))
         .map(|s| readlink(&s)).collect();
 
@@ -190,17 +191,28 @@ fn main() {
         ret.iter().map(|x| x.replace("/.git", "")).collect()
     };
 
-    // remove git repo from add
-    let add: Vec<String> = add.into_iter()
-        .filter(|x| git_repo.iter().find(|y| y == &x).is_none())
-        .collect();
+    let mut git_ignore_files: Vec<String> = {
+        let mut ret = Vec::new();
+        for x in &git_repo {
+            chdir(x).expect("chdir failed");
+            let s = Command::new("git")
+                .args(&["ls-files", "--others", "--directory", "-i", "--exclude-standard"])
+                .output().unwrap().stdout;
+            let s = String::from_utf8(s).unwrap();
+            let mut vec: Vec<_> = split(&s, r"\n")
+                .into_iter().map(|y| readlink(&format!("{}/{}", x, y))).collect();
+            ret.append(&mut vec);
+        }
+        ret
+    };
+    ignore.append(&mut git_ignore_files);
 
-    let mut files: Vec<String> = vec![];
-    let mut deep: Vec<usize> = vec![];
+    let mut files: Vec<String> = Vec::new();
+    let mut deep: Vec<usize> = Vec::new();
+    let ignore_args = find_ignore_args(&ignore);
     for x in &add {
         let s = Command::new("find")
-            .arg(x).args(&find_ignore_args(&ignore)).args(&find_ignore_args(&git_repo))
-            .arg("-print")
+            .arg(x).args(&ignore_args).arg("-print")
             .output().expect("").stdout;
         let s = String::from_utf8(s).expect("");
         let mut new = split(&s, r"\n");
@@ -216,34 +228,6 @@ fn main() {
         let iter = list.iter().skip(1);
         flag(root.borrow_mut(), iter);
     }
-
-//{{{ add git files
-    let (git, submodule): (Vec<_>, Vec<_>) = git_repo.clone().into_iter().partition(|x| {
-        git_repo.iter().fold(true, |boo, y| boo & (!x.starts_with(y) | (&x == &y)))
-    });
-    let get_git_files = |path: &str| -> Vec<String> {
-        let pwd = pwd();
-        chdir(path).expect("change dir failed");
-        let stdout = Command::new("git").arg("ls-files").output().expect("git ls-files").stdout;
-        chdir(&pwd).expect("chdir error");
-        let mut ret: Vec<_> = String::from_utf8(stdout).unwrap()
-            .lines().map(|x| format!("{}/{}", path, x)).collect();
-        let find = Command::new("find").arg(format!("{}/.git", path))
-            .output().unwrap().stdout;
-        ret.append(&mut split(&String::from_utf8(find).unwrap(), r"\n"));
-        ret
-    };
-    let mut git_files = git.iter().fold(vec![], |mut vec, x| {
-        vec.append(&mut get_git_files(x));
-        vec
-    });
-    for x in &submodule {
-        if git_files.iter().find(|y| y == &x).is_some() {
-            git_files.append(&mut get_git_files(x));
-        }
-    }
-    let root = make_tree(root, &git_files, &vec![]);
-//}}}
 
     output(root.borrow_mut());
 }
