@@ -110,8 +110,8 @@ fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
     }
 }
 
-fn output(node: RefMut<Node>, datafile: &str) {
-    let output = pwd() + "/output";
+fn output(node: RefMut<Node>, datafile: &str, folder: &str) {
+    let output = format!("{}/{}", pwd(), folder);
     if !File::open(&output).unwrap().metadata().unwrap().is_dir() {
         Command::new("rm").arg(&output).status().unwrap();
         Command::new("mkdir").arg(&output).status().unwrap();
@@ -148,10 +148,17 @@ impl DatabaseTrait for Database {
     }
     fn read(path: &str) -> BTreeMap<String, SystemTime> {
         let mut ret = BTreeMap::new();
-        let mut file = File::open(path).unwrap();
+        let file = File::open(path);
+        let mut file = match file {
+            Err(_) => {
+                File::create(path).unwrap();
+                File::open(path).unwrap()
+            },
+            Ok(x) => x,
+        };
         let mut s = String::new();
         file.read_to_string(&mut s).unwrap();
-        let regex = Regex::new(r"^(\d+) (\d+) (.+)$").unwrap();
+        let regex = Regex::new(r"^(\d+) (\d+) (.+)$").expect("regex");
         for s in s.lines() {
             let cap = regex.captures_iter(s).next().unwrap();
             let (a, b, s) = (cap.at(1).unwrap(), cap.at(2).unwrap(), cap.at(3).unwrap());
@@ -166,7 +173,10 @@ impl DatabaseTrait for Database {
         let mut file = File::create(path).unwrap();
         for (key, value) in self {
             let (a, b): (u64, u64) = unsafe { std::mem::transmute_copy(value) };
-            writeln!(file, "{} {} {}", a, b, key).unwrap();
+            match writeln!(file, "{} {} {}", a, b, key) {
+                Err(_) => return Err(()),
+                _ => (),
+            }
         }
         Ok(())
     }
@@ -238,5 +248,16 @@ fn main() {
         let iter = list.iter().skip(1);
         flag(root.borrow_mut(), iter);
     }
-    output(root.borrow_mut(), &datafile);
+    output(root.borrow_mut(), &datafile, "output");
+
+    let db_path = format!("{}/db/{}", pwd(), datafile);
+    let old_db = Database::read(&db_path);
+    let db = Database::from_list(&files);
+    let inc: Vec<String> = files.into_iter().filter(|x| match old_db.get(x) {
+        None => true,
+        Some(time) => time != db.get(x).unwrap(),
+    }).collect();
+    let inc_tree = make_tree(Node::new("", false), &inc, &Vec::new());
+    output(inc_tree.borrow_mut(), &datafile, "inc");
+    db.write(&db_path).unwrap();
 }

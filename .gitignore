@@ -1,4 +1,6 @@
 *.swp
 output
+inc
+db
 target
 bk
