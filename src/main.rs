@@ -110,8 +110,13 @@ fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
     }
 }
 
-fn output(node: RefMut<Node>) {
-    let outdir = format!("{}/output", pwd());
+fn output(node: RefMut<Node>, datafile: &str) {
+    let output = pwd() + "/output";
+    if !File::open(&output).unwrap().metadata().unwrap().is_dir() {
+        Command::new("rm").arg(&output).status().unwrap();
+        Command::new("mkdir").arg(&output).status().unwrap();
+    }
+    let outdir = format!("{}/{}", output, datafile);
     Command::new("rm").args(&["-R", &outdir]).status().unwrap();
     travel(node, &outdir, &outdir);
 }
@@ -168,8 +173,10 @@ impl DatabaseTrait for Database {
 }
 
 fn main() {
-    let file = env::args().nth(1).unwrap_or("file".to_string());
-    let data = read(&format!("./data/{}", file));
+    let datafile = env::args().nth(1).unwrap_or("file".to_string());
+    let data = read(&format!("./data/{}", datafile));
+
+//{{{ get list of files
     let add: Vec<String> = data.clone().into_iter()
         .filter(|s| Regex::new(r"^\+").unwrap().is_match(s))
         .map(|s| readlink(&s)).collect();
@@ -191,13 +198,15 @@ fn main() {
         ret.iter().map(|x| x.replace("/.git", "")).collect()
     };
 
-    let mut git_ignore_files: Vec<String> = {
+    let mut git_ignore: Vec<String> = {
         let mut ret = Vec::new();
         for x in &git_repo {
+            let pwd = pwd();
             chdir(x).expect("chdir failed");
             let s = Command::new("git")
                 .args(&["ls-files", "--others", "--directory", "-i", "--exclude-standard"])
                 .output().unwrap().stdout;
+            chdir(&pwd).expect("chdir failed");
             let s = String::from_utf8(s).unwrap();
             let mut vec: Vec<_> = split(&s, r"\n")
                 .into_iter().map(|y| readlink(&format!("{}/{}", x, y))).collect();
@@ -205,7 +214,7 @@ fn main() {
         }
         ret
     };
-    ignore.append(&mut git_ignore_files);
+    ignore.append(&mut git_ignore);
 
     let mut files: Vec<String> = Vec::new();
     let mut deep: Vec<usize> = Vec::new();
@@ -221,13 +230,13 @@ fn main() {
         files.append(&mut new);
         deep.append(&mut newdeep)
     }
-    let root = make_tree(Node::new("", false), &files, &deep);
+//}}}
 
+    let root = make_tree(Node::new("", false), &files, &deep);
     for x in &ignore {
         let list = split(x, "/");
         let iter = list.iter().skip(1);
         flag(root.borrow_mut(), iter);
     }
-
-    output(root.borrow_mut());
+    output(root.borrow_mut(), &datafile);
 }
