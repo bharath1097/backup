@@ -106,7 +106,7 @@ fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
 
 fn output(node: RefMut<Node>) {
     let outdir = format!("{}/output", pwd());
-    Command::new("rm").args(&["-R", &outdir]).status();
+    Command::new("rm").args(&["-R", &outdir]).status().unwrap();
     travel(node, &outdir, &outdir);
 }
 
@@ -178,9 +178,13 @@ fn main() {
         let pwd = pwd();
         chdir(path).expect("change dir failed");
         let stdout = Command::new("git").arg("ls-files").output().expect("git ls-files").stdout;
-        chdir(&pwd);
-        String::from_utf8(stdout).unwrap()
-            .lines().map(|x| format!("{}/{}", path, x)).collect()
+        chdir(&pwd).expect("chdir error");
+        let mut ret: Vec<_> = String::from_utf8(stdout).unwrap()
+            .lines().map(|x| format!("{}/{}", path, x)).collect();
+        let find = Command::new("find").arg(format!("{}/.git", path))
+            .output().unwrap().stdout;
+        ret.append(&mut split(&String::from_utf8(find).unwrap(), r"\n"));
+        ret
     };
     let mut git_files = git.iter().fold(vec![], |mut vec, x| {
         vec.append(&mut get_git_files(x));
