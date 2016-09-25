@@ -1,0 +1,13 @@
+#!/usr/bin/perl
+
+`rm data; mkdir data` unless -d "data";
+`rm db -R; mkdir db`;
+chdir "db";
+`git init`;
+`touch file`;
+`git add --all`;
+`git commit -am "initial commit"`;
+chdir "..";
+`ln -s target/release/backup bk`;
+mkdir "output";
+mkdir "inc";

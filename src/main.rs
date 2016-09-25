@@ -112,10 +112,6 @@ fn travel(mut node: RefMut<Node>, root: &str, path: &str) {
 
 fn output(node: RefMut<Node>, datafile: &str, folder: &str) {
     let output = format!("{}/{}", pwd(), folder);
-    if !File::open(&output).unwrap().metadata().unwrap().is_dir() {
-        Command::new("rm").arg(&output).status().unwrap();
-        Command::new("mkdir").arg(&output).status().unwrap();
-    }
     let outdir = format!("{}/{}", output, datafile);
     Command::new("rm").args(&["-R", &outdir]).status().unwrap();
     travel(node, &outdir, &outdir);
@@ -250,7 +246,11 @@ fn main() {
     }
     output(root.borrow_mut(), &datafile, "output");
 
-    let db_path = format!("{}/db/{}", pwd(), datafile);
+    let pwd = pwd();
+    let db_path = format!("{}/db/{}", pwd, datafile);
+    chdir(&format!("{}/db", pwd));
+    Command::new("git").args(&["checkout", "--", &datafile]).status().unwrap();
+    chdir(&pwd);
     let old_db = Database::read(&db_path);
     let db = Database::from_list(&files);
     let inc: Vec<String> = files.into_iter().filter(|x| match old_db.get(x) {
