@@ -3,4 +3,5 @@ output
 inc
 db
 target
+data
 bk
